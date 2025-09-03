@@ -855,11 +855,68 @@ export default function PotholeCertificateApp() {
   };
 
   useEffect(() => {
-    if (step === "generating" && capturedImage && location) {
-      // A small delay to ensure the DOM is ready before capturing
-      setTimeout(generateCertificate, 100);
-    }
-  }, [step, capturedImage, location]);
+    // This function will handle the entire preloading and generation process
+    const preloadAndGenerate = async () => {
+      // We only run this logic when the app is in the 'generating' step
+      if (step === "generating" && capturedImage && location) {
+        setLoadingMessage("Preloading certificate images...");
+
+        /**
+         * Helper function to load an image source and return a promise.
+         * The promise resolves when the image is loaded, or rejects on error.
+         * It handles null/undefined sources by resolving immediately.
+         */
+        const loadImage = (src: string | null): Promise<void> => {
+          return new Promise((resolve, reject) => {
+            // If the source is invalid (e.g., a null cmImageUrl), resolve immediately.
+            if (!src) {
+              resolve();
+              return;
+            }
+            const img = new Image();
+            // This is CRITICAL for loading cross-origin images (like from Wikipedia)
+            // without "tainting" the canvas that html-to-image uses.
+            img.crossOrigin = "anonymous";
+            img.onload = () => resolve();
+            img.onerror = (err) => reject(err);
+            img.src = src;
+          });
+        };
+
+        try {
+          // Create an array of all image URLs that need to be loaded.
+          // The loadImage function will handle the case where cmImageUrl is null.
+          const imageUrlsToLoad = [
+            capturedImage, // The photo taken by the user
+            "https://upload.wikimedia.org/wikipedia/commons/thumb/5/55/Emblem_of_India.svg/120px-Emblem_of_India.svg.png",
+            "https://upload.wikimedia.org/wikipedia/commons/4/44/Shri_Narendra_Modi%2C_Prime_Minister_of_India.jpg",
+            cmImageUrl,
+          ];
+
+          // Promise.all waits for every promise in the array to resolve.
+          // The .map creates a loading promise for each URL.
+          await Promise.all(imageUrlsToLoad.map(loadImage));
+
+          // SUCCESS: All images are now in the browser's cache and ready.
+          console.log("All images preloaded successfully.");
+
+          // Now we can safely generate the certificate. A brief timeout ensures the
+          // DOM has fully painted the loaded images before capture.
+          setTimeout(generateCertificate, 50);
+        } catch (error) {
+          console.error("Failed to preload one or more images:", error);
+          setError(
+            "Could not load required images for the certificate. Please check your network and try again."
+          );
+          // Reset the app state if loading fails
+          handleReset();
+        }
+      }
+    };
+
+    preloadAndGenerate();
+    // Add cmImageUrl to the dependency array to ensure this runs if it changes.
+  }, [step, capturedImage, location, cmImageUrl]);
 
   useEffect(() => {
     function hasDebugParam(url?: string): boolean {
@@ -883,6 +940,7 @@ export default function PotholeCertificateApp() {
     setGeneratedCertificate(null);
     stopCamera();
     setIssueType(null);
+    setCmImageUrl(null);
   };
 
   const handleDownload = () => {
