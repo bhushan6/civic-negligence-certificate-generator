@@ -1,5 +1,4 @@
 "use client";
-// import Image from "next/image";
 import { useState, useRef, useEffect, forwardRef } from "react";
 
 // --- Type Definitions ---
@@ -863,7 +862,17 @@ export default function PotholeCertificateApp() {
   }, [step, capturedImage, location]);
 
   useEffect(() => {
-    new UIConsole();
+    function hasDebugParam(url?: string): boolean {
+      try {
+        const targetUrl = url || window.location.href;
+        const urlObj = new URL(targetUrl);
+        return urlObj.searchParams.has("debug");
+      } catch (error) {
+        console.error("Invalid URL provided:", error);
+        return false;
+      }
+    }
+    hasDebugParam(window.location.href) && new UIConsole();
   }, []);
 
   const handleReset = () => {
