@@ -1,5 +1,5 @@
 "use client";
-import Image from "next/image";
+// import Image from "next/image";
 import { useState, useRef, useEffect, forwardRef } from "react";
 
 // --- Type Definitions ---
@@ -23,6 +23,232 @@ declare global {
   interface Window {
     QRious: unknown;
     htmlToImage: unknown;
+  }
+}
+
+type LogType = "log" | "warn" | "error";
+
+type LogArgument = string | number | boolean | null | undefined | object;
+
+interface OriginalConsole {
+  log: (...args: LogArgument[]) => void;
+  warn: (...args: LogArgument[]) => void;
+  error: (...args: LogArgument[]) => void;
+}
+
+interface UIElements {
+  fab: HTMLButtonElement;
+  panel: HTMLDivElement;
+  logsContainer: HTMLDivElement;
+  counter: HTMLSpanElement;
+  closeButton: HTMLButtonElement;
+  clearButton: HTMLButtonElement;
+}
+
+class UIConsole {
+  private logCount: number = 0;
+  private isOpen: boolean = false;
+  private originalConsole: OriginalConsole;
+  private fab!: HTMLButtonElement;
+  private panel!: HTMLDivElement;
+  private logsContainer!: HTMLDivElement;
+  private counter!: HTMLSpanElement;
+  private closeButton!: HTMLButtonElement;
+  private clearButton!: HTMLButtonElement;
+
+  constructor() {
+    // Store original console methods
+    this.originalConsole = {
+      log: console.log.bind(console),
+      warn: console.warn.bind(console),
+      error: console.error.bind(console),
+    };
+
+    // Create UI elements
+    this._createUI();
+
+    // Override console methods
+    this._overrideConsole();
+
+    // Add event listeners
+    this._addEventListeners();
+  }
+
+  /**
+   * Creates and injects the console UI into the DOM.
+   */
+  private _createUI(): void {
+    const container: HTMLDivElement = document.createElement("div");
+    container.innerHTML = `
+            <!-- Floating Action Button -->
+            <button id="ui-console-fab" class="fixed bottom-4 right-4 z-50 w-16 h-16 bg-gray-800 text-white rounded-full shadow-lg flex items-center justify-center transition-transform transform hover:scale-110">
+                <svg class="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 9l3 3-3 3m5 0h3M5 20h14a2 2 0 002-2V6a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"></path></svg>
+                <span id="ui-console-counter" class="absolute -top-1 -right-1 bg-red-500 text-white text-xs font-bold rounded-full h-6 w-6 flex items-center justify-center border-2 border-gray-800">0</span>
+            </button>
+
+            <!-- Console Panel -->
+            <div id="ui-console-panel" class="fixed bottom-0 left-0 right-0 z-40 h-1/2 bg-gray-900 text-white p-4 rounded-t-2xl shadow-2xl transform translate-y-full transition-transform duration-300 ease-in-out">
+                <div class="flex justify-between items-center pb-2 border-b border-gray-700">
+                    <h2 class="text-lg font-bold">UI Console</h2>
+                    <div>
+                        <button id="ui-console-clear" class="text-sm bg-gray-700 hover:bg-gray-600 px-3 py-1 rounded-md mr-2">Clear</button>
+                        <button id="ui-console-close" class="text-sm bg-red-500 hover:bg-red-600 px-3 py-1 rounded-md">&times; Close</button>
+                    </div>
+                </div>
+                <div id="ui-console-logs" class="h-[calc(100%-41px)] overflow-y-auto pt-2 font-mono text-sm"></div>
+            </div>
+        `;
+    document.body.appendChild(container);
+
+    // Store references to the elements with proper type assertions
+    this.fab = this._getElement("ui-console-fab") as HTMLButtonElement;
+    this.panel = this._getElement("ui-console-panel") as HTMLDivElement;
+    this.logsContainer = this._getElement("ui-console-logs") as HTMLDivElement;
+    this.counter = this._getElement("ui-console-counter") as HTMLSpanElement;
+    this.closeButton = this._getElement(
+      "ui-console-close"
+    ) as HTMLButtonElement;
+    this.clearButton = this._getElement(
+      "ui-console-clear"
+    ) as HTMLButtonElement;
+  }
+
+  /**
+   * Helper method to get DOM elements with null checking.
+   */
+  private _getElement(id: string): HTMLElement {
+    const element = document.getElementById(id);
+    if (!element) {
+      throw new Error(`Element with id '${id}' not found`);
+    }
+    return element;
+  }
+
+  /**
+   * Replaces the native console methods with our custom logging function.
+   */
+  private _overrideConsole(): void {
+    console.log = (...args: LogArgument[]): void => {
+      this.originalConsole.log(...args); // Keep original behavior
+      this._addLog(args, "log");
+    };
+    console.warn = (...args: LogArgument[]): void => {
+      this.originalConsole.warn(...args);
+      this._addLog(args, "warn");
+    };
+    console.error = (...args: LogArgument[]): void => {
+      this.originalConsole.error(...args);
+      this._addLog(args, "error");
+    };
+  }
+
+  /**
+   * Attaches event listeners to the UI elements.
+   */
+  private _addEventListeners(): void {
+    this.fab.addEventListener("click", (): void => this.togglePanel());
+    this.closeButton.addEventListener("click", (): void => this.closePanel());
+    this.clearButton.addEventListener("click", (): void => this.clearLogs());
+  }
+
+  /**
+   * Formats a single log argument to string.
+   */
+  private _formatArgument(arg: LogArgument): string {
+    if (typeof arg === "object" && arg !== null) {
+      try {
+        // Pretty print JSON with 2 spaces
+        return JSON.stringify(arg, null, 2);
+      } catch (error: unknown) {
+        return "[Unserializable Object]";
+      }
+    }
+    if (arg === null) return "null";
+    if (arg === undefined) return "undefined";
+    return String(arg);
+  }
+
+  /**
+   * Adds a log entry to the UI panel.
+   * @param args - The arguments passed to the console method.
+   * @param type - The type of log.
+   */
+  private _addLog(args: LogArgument[], type: LogType): void {
+    const logEntry: HTMLDivElement = document.createElement("div");
+    const timestamp: string = new Date().toLocaleTimeString();
+
+    const typeColors: Record<LogType, string> = {
+      log: "border-gray-500 text-gray-300",
+      warn: "border-yellow-500 text-yellow-300",
+      error: "border-red-500 text-red-400",
+    };
+
+    logEntry.className = `p-2 border-l-4 mb-2 ${typeColors[type]}`;
+
+    const formattedArgs: string = args
+      .map((arg: LogArgument): string => this._formatArgument(arg))
+      .join(" ");
+
+    // Using <pre> tag to respect formatting of stringified objects
+    logEntry.innerHTML = `<span class="text-gray-500 mr-2">${timestamp}</span><pre class="inline-block whitespace-pre-wrap">${formattedArgs}</pre>`;
+
+    this.logsContainer.appendChild(logEntry);
+    // Auto-scroll to the bottom
+    this.logsContainer.scrollTop = this.logsContainer.scrollHeight;
+
+    this.logCount++;
+    this.counter.textContent = this.logCount.toString();
+  }
+
+  /**
+   * Toggles the visibility of the console panel.
+   */
+  public togglePanel(): void {
+    this.isOpen = !this.isOpen;
+    this.panel.classList.toggle("translate-y-full");
+  }
+
+  /**
+   * Closes the console panel.
+   */
+  public closePanel(): void {
+    if (this.isOpen) {
+      this.panel.classList.add("translate-y-full");
+      this.isOpen = false;
+    }
+  }
+
+  /**
+   * Clears all logs from the UI panel.
+   */
+  public clearLogs(): void {
+    this.logsContainer.innerHTML = "";
+    this.logCount = 0;
+    this.counter.textContent = "0";
+    this.originalConsole.log("UI Console Cleared.");
+  }
+
+  /**
+   * Restores the original console methods.
+   */
+  public restore(): void {
+    console.log = this.originalConsole.log;
+    console.warn = this.originalConsole.warn;
+    console.error = this.originalConsole.error;
+  }
+
+  /**
+   * Gets the current log count.
+   */
+  public getLogCount(): number {
+    return this.logCount;
+  }
+
+  /**
+   * Gets the current open state.
+   */
+  public isConsoleOpen(): boolean {
+    return this.isOpen;
   }
 }
 
@@ -238,7 +464,7 @@ const CertificateDOM = forwardRef<HTMLDivElement, CertificateDOMProps>(
         style={{ fontFamily: "Inter, sans-serif" }}
       >
         <div className="w-full h-full border-[3px] border-[#1a3a8a] flex flex-col items-center p-8">
-          <Image
+          <img
             src="https://upload.wikimedia.org/wikipedia/commons/thumb/5/55/Emblem_of_India.svg/120px-Emblem_of_India.svg.png"
             alt="Emblem of India"
             className="h-24 w-24"
@@ -298,7 +524,7 @@ const CertificateDOM = forwardRef<HTMLDivElement, CertificateDOMProps>(
               </div>
             </div>
             <div className="w-64 flex-shrink-0 text-center">
-              <Image
+              <img
                 src={capturedImage}
                 alt="Captured issue"
                 className="w-full border-2 border-gray-300 rounded-md"
@@ -310,14 +536,14 @@ const CertificateDOM = forwardRef<HTMLDivElement, CertificateDOMProps>(
           </div>
 
           <div className="mt-auto w-full h-64 bg-[#f0f4ff] flex items-center p-6 space-x-6">
-            <Image
+            <img
               src="https://upload.wikimedia.org/wikipedia/commons/4/44/Shri_Narendra_Modi%2C_Prime_Minister_of_India.jpg"
               alt="Prime Minister"
               className="h-40 rounded"
               crossOrigin="anonymous"
             />
             {cmImageUrl && (
-              <Image
+              <img
                 src={cmImageUrl}
                 alt="State CM"
                 className="h-40 rounded"
@@ -636,6 +862,10 @@ export default function PotholeCertificateApp() {
     }
   }, [step, capturedImage, location]);
 
+  useEffect(() => {
+    new UIConsole();
+  }, []);
+
   const handleReset = () => {
     setStep("initial");
     setLocation(null);
@@ -794,7 +1024,7 @@ export default function PotholeCertificateApp() {
             <h2 className="text-2xl font-bold text-center mb-4">
               Certificate Generated Successfully!
             </h2>
-            <Image
+            <img
               src={generatedCertificate}
               alt="Generated Certificate of Civic Negligence"
               className="w-full rounded-lg shadow-lg border"
